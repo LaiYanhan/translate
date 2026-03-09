@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QGroupBox, QStatusBar,
     QInputDialog, QMessageBox, QListWidget, QListWidgetItem,
-    QLineEdit, QScrollArea
+    QLineEdit, QScrollArea, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon, QColor
@@ -25,7 +25,7 @@ from ocr_engine import ocr_engine
 from ocr_postprocess import merge_ocr_lines
 from subtitle_detector import detect_subtitle_region, filter_subtitle_results
 from translator import translate_text
-from translation_cache import load_translation_cache, get_cache_size
+from translation_cache import load_translation_cache, get_cache_size, clear_cache
 from overlay_renderer import OverlayRenderer, SubtitleItem
 from hotkey_listener import HotkeyListener
 from terminology_manager import TerminologyManagerDialog
@@ -242,8 +242,8 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._apply_stylesheet()
 
-        # 加载 API 设置到输入框
-        self._load_api_settings()
+        # 加载设置
+        self._load_app_settings()
         # 加载翻译缓存
         load_translation_cache()
         # 初始化 OCR（后台线程，避免阻塞 UI）
@@ -334,6 +334,11 @@ class MainWindow(QMainWindow):
         func_layout.addLayout(row2)
 
         row3 = QHBoxLayout()
+        btn_clear = QPushButton("🧹 清空缓存")
+        btn_clear.setObjectName("clearBtn")
+        btn_clear.clicked.connect(self._clear_cache)
+        row3.addWidget(btn_clear)
+
         btn_quit = QPushButton("❌ 退出")
         btn_quit.setObjectName("quitBtn")
         btn_quit.clicked.connect(self.close)
@@ -341,6 +346,22 @@ class MainWindow(QMainWindow):
         func_layout.addLayout(row3)
 
         root.addWidget(func_box)
+
+        # ---- 常规设置 ----
+        settings_box = QGroupBox("⚙ 常规设置")
+        settings_layout = QHBoxLayout(settings_box)
+        settings_layout.addWidget(QLabel("字幕停留时长 (秒):"))
+        self._duration_spin = QDoubleSpinBox()
+        self._duration_spin.setRange(1.0, 60.0)
+        self._duration_spin.setSingleStep(0.5)
+        self._duration_spin.setValue(config.SUBTITLE_DURATION)
+        self._duration_spin.valueChanged.connect(self._save_general_settings)
+        self._duration_spin.setStyleSheet(
+            "background:#313244; color:#cdd6f4; border:1px solid #585b70; padding:4px; border-radius:4px;"
+        )
+        settings_layout.addWidget(self._duration_spin)
+        settings_layout.addStretch()
+        root.addWidget(settings_box)
 
         # ---- API 设置面板 ----
         api_box = QGroupBox("🔑 API 设置")
@@ -401,6 +422,8 @@ class MainWindow(QMainWindow):
             QPushButton#listenBtn:hover { background: #94e2d5; }
             QPushButton#quitBtn { background: #f38ba8; color: #1e1e2e; }
             QPushButton#quitBtn:hover { background: #eba0ac; }
+            QPushButton#clearBtn { background: #fab387; color: #1e1e2e; }
+            QPushButton#clearBtn:hover { background: #f9e2af; }
             QPushButton#saveApiBtn { background: #89b4fa; color: #1e1e2e; font-weight: bold; }
             QPushButton#saveApiBtn:hover { background: #b4befe; }
             QLineEdit {
@@ -430,6 +453,17 @@ class MainWindow(QMainWindow):
         api_ok = bool(config.LLM_API_KEY)
         api_hint = "✅ 已配置" if api_ok else "⚠ 未配置（请填写 API Key）"
         self._lbl_mode.setToolTip(f"API 状态：{api_hint}")
+
+    def _clear_cache(self):
+        """确认并清空翻译缓存"""
+        reply = QMessageBox.question(
+            self, "清空缓存", "确定要清空所有翻译快照缓存吗？\n这将删除已保存的翻译记录，下次翻译将重新请求服务器。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            clear_cache()
+            self._refresh_info()
+            self.status_bar.showMessage("翻译缓存已清空。")
 
     def _set_mode(self, mode: str):
         self._mode = mode
@@ -494,12 +528,16 @@ class MainWindow(QMainWindow):
         self._overlay.show_subtitles(subtitles)
         self.status_bar.showMessage(f"已显示 {len(subtitles)} 条字幕（{config.SUBTITLE_DURATION}s 后消失）")
 
-    def _load_api_settings(self):
-        """从持久化文件读取 API 设置并填入输入框"""
+    def _load_app_settings(self):
+        """从持久化文件读取 设置并填入 UI"""
         s = load_settings()
         self._api_key_input.setText(s.get("llm_api_key", ""))
         self._api_url_input.setText(s.get("llm_api_url", ""))
         self._api_model_input.setText(s.get("llm_model", ""))
+        
+        duration = s.get("subtitle_duration", 6.0)
+        self._duration_spin.setValue(float(duration))
+        config.SUBTITLE_DURATION = float(duration)
 
     def _save_api_settings(self):
         """将输入框内容保存到 app_settings.json 并即时生效"""
@@ -516,6 +554,7 @@ class MainWindow(QMainWindow):
             "llm_api_key": key,
             "llm_api_url": url or "https://api.openai.com/v1/chat/completions",
             "llm_model": model or "gpt-4o-mini",
+            "subtitle_duration": self._duration_spin.value()
         }
         save_settings(settings)
 
@@ -535,6 +574,13 @@ class MainWindow(QMainWindow):
             f"API 设置已保存 | Key: {masked} | URL: {settings['llm_api_url']} | Model: {settings['llm_model']}"
         )
         self._refresh_info()
+
+    def _save_general_settings(self):
+        s = load_settings()
+        s["subtitle_duration"] = self._duration_spin.value()
+        save_settings(s)
+        config.SUBTITLE_DURATION = s["subtitle_duration"]
+        self.status_bar.showMessage(f"已更新字幕显示时长: {config.SUBTITLE_DURATION}s")
 
     @staticmethod
     def _mask_key(key: str) -> str:

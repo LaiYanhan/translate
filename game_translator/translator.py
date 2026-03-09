@@ -110,3 +110,56 @@ def _call_llm(text: str) -> str:
         _consecutive_errors += 1
 
     return ""
+
+
+def extract_terms_from_text(text: str) -> dict[str, dict]:
+    """
+    调用 LLM 从一大段英文中自动提取合适的术语设定。
+    返回格式: {"English Term": {"translation": "中文", "context": "语境"}}
+    """
+    if not LLM_API_KEY:
+        logger.warning("LLM_API_KEY 未配置，无法提取术语")
+        return {}
+    
+    system_prompt = (
+        "You are an expert game translation terminology extractor.\n"
+        "Analyze the following English text and extract key terms, proper nouns, character names, or special game vocabulary.\n"
+        "For each term, provide a suitable Chinese translation and a brief context or condition under which this translation applies.\n"
+        "Return the result STRICTLY as a JSON object without any other text.\n"
+        "Example format:\n"
+        "{\n"
+        '  "Term in English": {"translation": "中文翻译", "context": "语境说明"}\n'
+        "}\n"
+    )
+    
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text[:4000]},  # 截断以防止超长
+        ],
+        "temperature": 0.3,
+    }
+    
+    url_to_call = LLM_API_URL.strip()
+    if "api.deepseek.com" in url_to_call and not url_to_call.endswith("/completions"):
+        url_to_call = "https://api.deepseek.com/chat/completions"
+        
+    try:
+        resp = requests.post(url_to_call, headers=headers, json=payload, timeout=LLM_TIMEOUT * 2)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"].strip()
+        
+        # 清理可能存在的 markdown 代码块包裹
+        if content.startswith("```"):
+            content = content.replace("```json", "").replace("```", "").strip()
+            
+        import json
+        result = json.loads(content)
+        if isinstance(result, dict):
+            return result
+    except Exception as e:
+        logger.error(f"AI 提取术语失败: {e}")
+        
+    return {}

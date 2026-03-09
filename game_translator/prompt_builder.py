@@ -25,15 +25,24 @@ def build_prompt(text: str) -> tuple[str, str]:
     :param text: 待翻译的英文文本
     :return: (system_prompt, user_message)
     """
-    terms = load_terminology()
+    terms, background_info = load_terminology()
 
     system_prompt = BASE_SYSTEM_PROMPT
+    
+    if background_info:
+        system_prompt += f"\n\nCONTEXT / GAME BACKGROUND:\n{background_info}"
 
     if terms:
         # 注入术语表
-        term_lines = "\n".join(f"  {en} → {zh}" for en, zh in terms.items())
+        term_lines = []
+        for en, data in terms.items():
+            line = f"  {en} → {data['translation']}"
+            if data.get("context"):
+                line += f" (Condition/Context: {data['context']})"
+            term_lines.append(line)
+        
         system_prompt += (
-            f"\n\nPlease follow these terminology rules:\n{term_lines}"
+            f"\n\nPlease follow these terminology rules strictly (pay attention to context if provided):\n" + "\n".join(term_lines)
         )
 
     return system_prompt, text

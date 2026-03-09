@@ -8,8 +8,9 @@ import logging
 from PyQt6.QtWidgets import QWidget, QLabel, QApplication
 from PyQt6.QtCore import Qt, QTimer, QRect
 from PyQt6.QtGui import QFont, QColor, QPainter, QFontMetrics
+import config
 from config import (
-    SUBTITLE_DURATION, SUBTITLE_FONT_SIZE,
+    SUBTITLE_FONT_SIZE,
     SUBTITLE_FONT_COLOR, SUBTITLE_PADDING
 )
 import ctypes
@@ -75,7 +76,7 @@ class OverlayRenderer(QWidget):
         self.update()
         self.show()
         self._make_click_through()
-        self._timer.start(SUBTITLE_DURATION * 1000)
+        self._timer.start(int(config.SUBTITLE_DURATION * 1000))
         logger.debug(f"显示字幕 {len(subtitles)} 条")
 
     def _clear_subtitles(self):

@@ -1,18 +1,69 @@
 {
-  "HP": "生命值",
-  "MP": "法力值",
-  "EXP": "经验值",
-  "Quest": "任务",
-  "Inventory": "背包",
-  "Skill": "技能",
-  "Dungeon": "地下城",
-  "Boss": "首领",
-  "NPC": "非玩家角色",
-  "Loot": "战利品",
-  "Respawn": "复活",
-  "Save Point": "存档点",
-  "Checkpoint": "检查点",
-  "Game Over": "游戏失败",
-  "Level Up": "升级",
-  "Achievement": "成就"
+  "background_info": "这是一个lovelive  的英文游戏。请根据lovelive 中的角色的罗马音 翻译 对应的中文。 并且游戏背景是基于 逆转裁判 制作的同人游戏。",
+  "terms": {
+    "Kanan": {
+      "translation": "果南",
+      "context": ""
+    },
+    "You": {
+      "translation": "曜",
+      "context": "在lovelive sunshine里面是渡边曜，也有可能是你的意思"
+    },
+    "Yu": {
+      "translation": "侑",
+      "context": "在 love live nijigasaki里是高咲侑"
+    },
+    "Quest": {
+      "translation": "任务",
+      "context": ""
+    },
+    "Inventory": {
+      "translation": "背包",
+      "context": ""
+    },
+    "Skill": {
+      "translation": "技能",
+      "context": ""
+    },
+    "Dungeon": {
+      "translation": "地下城",
+      "context": ""
+    },
+    "Boss": {
+      "translation": "首领",
+      "context": ""
+    },
+    "NPC": {
+      "translation": "非玩家角色",
+      "context": ""
+    },
+    "Loot": {
+      "translation": "战利品",
+      "context": ""
+    },
+    "Respawn": {
+      "translation": "复活",
+      "context": ""
+    },
+    "Save Point": {
+      "translation": "存档点",
+      "context": ""
+    },
+    "Checkpoint": {
+      "translation": "检查点",
+      "context": ""
+    },
+    "Game Over": {
+      "translation": "游戏失败",
+      "context": ""
+    },
+    "Level Up": {
+      "translation": "升级",
+      "context": ""
+    },
+    "Achievement": {
+      "translation": "成就",
+      "context": ""
+    }
+  }
 }

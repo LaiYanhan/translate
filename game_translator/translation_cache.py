@@ -69,3 +69,20 @@ def get_cache_size() -> int:
     """返回当前缓存条数"""
     with _lock:
         return len(_cache)
+
+
+def clear_cache() -> None:
+    """清空所有翻译缓存数据"""
+    global _cache
+    with _lock:
+        _cache = {}
+    path = Path(TRANSLATION_CACHE_FILE)
+    try:
+        if path.exists():
+            # 不是直接物理删除，而是重写为空的 JSON，或者也可以 unlink
+            # 考虑到 load_translation_cache 会读取它，重写为 {} 比较稳妥
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+        logger.info("翻译缓存已清空")
+    except Exception as e:
+        logger.error(f"清空缓存文件失败: {e}")
