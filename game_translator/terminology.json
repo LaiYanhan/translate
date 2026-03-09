@@ -1,0 +1,18 @@
+{
+  "HP": "生命值",
+  "MP": "法力值",
+  "EXP": "经验值",
+  "Quest": "任务",
+  "Inventory": "背包",
+  "Skill": "技能",
+  "Dungeon": "地下城",
+  "Boss": "首领",
+  "NPC": "非玩家角色",
+  "Loot": "战利品",
+  "Respawn": "复活",
+  "Save Point": "存档点",
+  "Checkpoint": "检查点",
+  "Game Over": "游戏失败",
+  "Level Up": "升级",
+  "Achievement": "成就"
+}

@@ -1,0 +1,22 @@
+# 游戏实时翻译工具依赖
+
+# OCR
+paddleocr
+paddlepaddle-gpu
+
+# 图像处理
+opencv-python
+numpy
+
+# 截图
+mss
+pywin32
+
+# UI
+PyQt6
+
+# 热键
+keyboard
+
+# HTTP 请求
+requests
