@@ -41,6 +41,36 @@ def _merge_boxes(boxes) -> list:
     return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
 
 
+def _clean_text(text: str) -> str:
+    """清理 OCR 常见误识别，特别是行首的 I 被识别成 / 或 |"""
+    if not text:
+        return text
+    
+    # 1. 处理行首误识别
+    # 如果以 / 或 | 开头，且后面是空格或大写字母，极大概率是 "I"
+    # 例如: "/ was" -> "I was", "| am" -> "I am"
+    if text.startswith(("/", "|")):
+        if len(text) == 1:
+            return "I"
+        if text[1] == " " or text[1].isupper():
+            text = "I" + text[1:]
+            
+    # 2. 处理带括号的行首误识别
+    # 例如: "(/ am" -> "(I am", "(| was" -> "(I was"
+    if text.startswith(("( /", "( |", "(/", "(|")):
+        # 寻找斜杠或竖线的索引
+        idx = text.find("/")
+        if idx == -1:
+            idx = text.find("|")
+            
+        if idx != -1 and idx < 3: # 确保在开头附近
+            if len(text) > idx + 1:
+                if text[idx+1] == " " or text[idx+1].isupper():
+                    text = text[:idx] + "I" + text[idx+1:]
+                    
+    return text
+
+
 def merge_ocr_lines(
     ocr_results: List[Tuple[str, list, float]]
 ) -> List[Tuple[str, list, float]]:
@@ -97,6 +127,9 @@ def merge_ocr_lines(
             confs = [g[2] for g in group]
 
             merged_text = " ".join(texts)
+            # 应用后处理清理
+            merged_text = _clean_text(merged_text)
+            
             merged_box = _merge_boxes(boxes)
             avg_conf = float(np.mean(confs))
 
