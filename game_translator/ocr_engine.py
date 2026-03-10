@@ -3,9 +3,24 @@ ocr_engine.py - OCR 引擎封装
 使用 PaddleOCR，优先 GPU，回退 CPU
 """
 
-import logging
-import numpy as np
+import os
 import config
+import numpy as np
+from paddleocr import PaddleOCR  # 顶层导入，方便打包分析
+
+# 环境设置：禁用 PaddleX 的在线模型链接检查，解决打包后的"依赖错误"
+os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
+
+# 强制导入 PaddleX 关键子模块（帮助 PyInstaller 注册 Pipeline）
+try:
+    import paddlex
+    import paddlex.inference.pipelines.ocr
+    import paddlex.inference.models.text_detection
+    import paddlex.inference.models.text_recognition
+except ImportError:
+    pass
+
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +47,6 @@ class OCREngine:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
             cls._instance._current_lang = ""
-            from paddleocr import PaddleOCR
-            cls._instance.PaddleOCR = PaddleOCR
         return cls._instance
 
     def initialize(self):
@@ -49,17 +62,21 @@ class OCREngine:
         import paddle
         import inspect
         
+        # 设置本地模型存放路径，方便打包和移动
+        model_path = str(config.BASE_DIR / "models")
+        
         ocr_kwargs = {
             "use_angle_cls": config.OCR_USE_ANGLE_CLS,
             "lang": config.OCR_LANG,
             "use_gpu": use_gpu,
             "show_log": False,
+            "model_storage_directory": model_path,
         }
         
         # Determine how to pass parameters based on what PaddleOCR version accepts
         while True:
             try:
-                self.ocr = self.PaddleOCR(**ocr_kwargs)
+                self.ocr = PaddleOCR(**ocr_kwargs)
                 break
             except (ValueError, RuntimeError) as e:
                 err_str = str(e)

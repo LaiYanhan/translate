@@ -1,0 +1,23 @@
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# App Data
+models/
+translation_cache.json
+app_settings.json
+debug_capture.png
+debug_capture_ocr.png
+logs/
+
+# IDE
+.vscode/
+.idea/

@@ -3,7 +3,7 @@
   "llm_api_url": "https://api.deepseek.com/chat/completions",
   "llm_model": "deepseek-chat",
   "subtitle_duration": 11.0,
-  "subtitle_font_size": 13,
+  "subtitle_font_size": 14,
   "source_lang": "japan",
   "target_lang": "简体中文"
 }
