@@ -5,8 +5,7 @@ ocr_engine.py - OCR 引擎封装
 
 import logging
 import numpy as np
-from paddleocr import PaddleOCR
-from config import OCR_LANG, OCR_USE_ANGLE_CLS, OCR_USE_GPU
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -32,24 +31,27 @@ class OCREngine:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
+            cls._instance._current_lang = ""
+            from paddleocr import PaddleOCR
+            cls._instance.PaddleOCR = PaddleOCR
         return cls._instance
 
     def initialize(self):
         """初始化 PaddleOCR，检测 GPU 可用性"""
-        if self._initialized:
+        if self._initialized and self._current_lang == config.OCR_LANG:
             return
 
-        use_gpu = OCR_USE_GPU and _detect_gpu()
+        use_gpu = config.OCR_USE_GPU and _detect_gpu()
         mode_label = "GPU" if use_gpu else "CPU"
-        logger.info(f"OCR Mode: {mode_label}")
-        print(f"[OCR] OCR Mode: {mode_label}")
+        logger.info(f"OCR Mode: {mode_label}, Language: {config.OCR_LANG}")
+        print(f"[OCR] OCR Mode: {mode_label}, Language: {config.OCR_LANG}")
 
         import paddle
         import inspect
         
         ocr_kwargs = {
-            "use_angle_cls": OCR_USE_ANGLE_CLS,
-            "lang": OCR_LANG,
+            "use_angle_cls": config.OCR_USE_ANGLE_CLS,
+            "lang": config.OCR_LANG,
             "use_gpu": use_gpu,
             "show_log": False,
         }
@@ -57,10 +59,32 @@ class OCREngine:
         # Determine how to pass parameters based on what PaddleOCR version accepts
         while True:
             try:
-                self.ocr = PaddleOCR(**ocr_kwargs)
+                self.ocr = self.PaddleOCR(**ocr_kwargs)
                 break
-            except ValueError as e:
+            except (ValueError, RuntimeError) as e:
                 err_str = str(e)
+                logger.warning(f"PaddleOCR 初始化尝试失败: {err_str}")
+                
+                if "No valid PaddlePaddle model found" in err_str:
+                    # 针对 PaddleOCR 3.x 的特定错误：可能是该语言的高级模型未下载或下载错误
+                    # 尝试降级：取消某些可能导致路径错误的参数，或者提示用户
+                    if ocr_kwargs.get("use_angle_cls"):
+                        logger.info("尝试关闭 use_angle_cls 以进入精简模式...")
+                        ocr_kwargs["use_angle_cls"] = False
+                        continue
+                    if ocr_kwargs.get("use_gpu"):
+                        logger.info("尝试回退至 CPU 模式...")
+                        ocr_kwargs["use_gpu"] = False
+                        use_gpu = False
+                        if "device" in ocr_kwargs: ocr_kwargs["device"] = "cpu"
+                        continue
+                    # 如果都试过了还没用，那可能是模型文件损坏，抛出给用户看
+                    raise RuntimeError(
+                        f"无法载入 OCR 模型 ({config.OCR_LANG})。\n"
+                        "原因：{err_str}\n"
+                        "建议：删除 C:\\Users\\你的用户名\\.paddleocr 文件夹后重试，强制程序重新下载模型。"
+                    ) from e
+
                 if "Unknown argument:" in err_str:
                     bad_arg = err_str.split("Unknown argument:")[-1].strip()
                     logger.debug(f"PaddleOCR 不再支持参数: {bad_arg}")
@@ -71,13 +95,15 @@ class OCREngine:
                         if bad_arg == "use_gpu":
                             if hasattr(paddle, "device") and hasattr(paddle.device, "set_device"):
                                 paddle.device.set_device("gpu" if use_gpu else "cpu")
-                            # 新版本可能使用 device 参数
                             ocr_kwargs["device"] = "gpu" if use_gpu else "cpu"
+                        continue
                     else:
                         raise
                 else:
                     raise
         
+        
+        self._current_lang = config.OCR_LANG
         self._initialized = True
 
     def recognize(self, image: np.ndarray) -> list[tuple[str, list, float]]:
@@ -87,7 +113,7 @@ class OCREngine:
         :return: [(text, box, confidence), ...]
                  box 为 4 个点的坐标 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
         """
-        if not self._initialized:
+        if not self._initialized or self._current_lang != config.OCR_LANG:
             self.initialize()
 
         if image is None or getattr(image, 'size', 0) == 0:
@@ -97,7 +123,7 @@ class OCREngine:
         try:
             # Handle standard PaddleOCR 2.x and some 3.x
             try:
-                result = self.ocr.ocr(image, cls=OCR_USE_ANGLE_CLS)
+                result = self.ocr.ocr(image, cls=config.OCR_USE_ANGLE_CLS)
             except AttributeError:
                 # PaddleOCR 3.4+ PaddleX Pipeline uses predict()
                 result = list(self.ocr.predict(image))

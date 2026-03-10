@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QGroupBox, QStatusBar,
     QInputDialog, QMessageBox, QListWidget, QListWidgetItem,
-    QLineEdit, QScrollArea, QDoubleSpinBox
+    QLineEdit, QScrollArea, QDoubleSpinBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon, QColor
@@ -349,18 +349,60 @@ class MainWindow(QMainWindow):
 
         # ---- 常规设置 ----
         settings_box = QGroupBox("⚙ 常规设置")
-        settings_layout = QHBoxLayout(settings_box)
-        settings_layout.addWidget(QLabel("字幕停留时长 (秒):"))
+        settings_layout = QVBoxLayout(settings_box)
+        settings_layout.setSpacing(10)
+
+        # 停留时长 & 字体大小
+        row_params = QHBoxLayout()
+        row_params.addWidget(QLabel("字幕停留时长 (秒):"))
         self._duration_spin = QDoubleSpinBox()
         self._duration_spin.setRange(1.0, 60.0)
         self._duration_spin.setSingleStep(0.5)
         self._duration_spin.setValue(config.SUBTITLE_DURATION)
         self._duration_spin.valueChanged.connect(self._save_general_settings)
-        self._duration_spin.setStyleSheet(
-            "background:#313244; color:#cdd6f4; border:1px solid #585b70; padding:4px; border-radius:4px;"
-        )
-        settings_layout.addWidget(self._duration_spin)
-        settings_layout.addStretch()
+        self._duration_spin.setStyleSheet("background:#313244; color:#cdd6f4; border:1px solid #585b70; padding:4px;")
+        row_params.addWidget(self._duration_spin)
+
+        row_params.addSpacing(20)
+        row_params.addWidget(QLabel("字幕字体大小:"))
+        self._font_size_spin = QSpinBox()
+        self._font_size_spin.setRange(10, 100)
+        self._font_size_spin.setValue(int(config.SUBTITLE_FONT_SIZE))
+        self._font_size_spin.valueChanged.connect(self._save_general_settings)
+        self._font_size_spin.setStyleSheet("background:#313244; color:#cdd6f4; border:1px solid #585b70; padding:4px;")
+        row_params.addWidget(self._font_size_spin)
+        row_params.addStretch()
+        settings_layout.addLayout(row_params)
+
+        # 语言选择
+        row_langs = QHBoxLayout()
+        row_langs.addWidget(QLabel("📖 源语言 (OCR):"))
+        self._source_lang_combo = QComboBox()
+        # PaddleOCR 支持的常用 key: en, ch, japan, korea, french, german
+        self._source_lang_map = {
+            "English (en)": "en",
+            "中英混合 (ch)": "ch",
+            "Japanese (japan)": "japan",
+            "Korean (korea)": "korea",
+            "French (french)": "french",
+            "German (german)": "german",
+        }
+        self._source_lang_combo.addItems(list(self._source_lang_map.keys()))
+        self._source_lang_combo.currentIndexChanged.connect(self._save_general_settings)
+        row_langs.addWidget(self._source_lang_combo)
+
+        row_langs.addSpacing(20)
+        row_langs.addWidget(QLabel("➡ 翻译目标语言:"))
+        self._target_lang_combo = QComboBox()
+        self._target_lang_list = [
+            "简体中文", "繁體中文", "English", "日本語", "Korean", "French", "German"
+        ]
+        self._target_lang_combo.addItems(self._target_lang_list)
+        self._target_lang_combo.currentIndexChanged.connect(self._save_general_settings)
+        row_langs.addWidget(self._target_lang_combo)
+        row_langs.addStretch()
+        settings_layout.addLayout(row_langs)
+
         root.addWidget(settings_box)
 
         # ---- API 设置面板 ----
@@ -539,6 +581,24 @@ class MainWindow(QMainWindow):
         self._duration_spin.setValue(float(duration))
         config.SUBTITLE_DURATION = float(duration)
 
+        font_size = s.get("subtitle_font_size", 22)
+        self._font_size_spin.setValue(int(font_size))
+        config.SUBTITLE_FONT_SIZE = int(font_size)
+
+        src_l = s.get("source_lang", "en")
+        for label, code in self._source_lang_map.items():
+            if code == src_l:
+                self._source_lang_combo.setCurrentText(label)
+                break
+        config.SOURCE_LANG = src_l
+        config.OCR_LANG = src_l
+
+        tgt_l = s.get("target_lang", "简体中文")
+        # 兼容旧版的 "zh" -> "简体中文"
+        if tgt_l == "zh": tgt_l = "简体中文"
+        self._target_lang_combo.setCurrentText(tgt_l)
+        config.TARGET_LANG = tgt_l
+
     def _save_api_settings(self):
         """将输入框内容保存到 app_settings.json 并即时生效"""
         key = self._api_key_input.text().strip()
@@ -578,9 +638,27 @@ class MainWindow(QMainWindow):
     def _save_general_settings(self):
         s = load_settings()
         s["subtitle_duration"] = self._duration_spin.value()
+        s["subtitle_font_size"] = self._font_size_spin.value()
+        
+        src_label = self._source_lang_combo.currentText()
+        src_code = self._source_lang_map.get(src_label, "en")
+        s["source_lang"] = src_code
+        
+        tgt_lang = self._target_lang_combo.currentText()
+        s["target_lang"] = tgt_lang
+
         save_settings(s)
+        
+        # 同步更新 config
         config.SUBTITLE_DURATION = s["subtitle_duration"]
-        self.status_bar.showMessage(f"已更新字幕显示时长: {config.SUBTITLE_DURATION}s")
+        config.SUBTITLE_FONT_SIZE = s["subtitle_font_size"]
+        config.SOURCE_LANG = s["source_lang"]
+        config.OCR_LANG = s["source_lang"] # OCR 跟随源语言
+        config.TARGET_LANG = s["target_lang"]
+
+        self.status_bar.showMessage(
+            f"设置已更新 | 时长:{config.SUBTITLE_DURATION}s | 字体:{config.SUBTITLE_FONT_SIZE}px | {src_code}➡{tgt_lang}"
+        )
 
     @staticmethod
     def _mask_key(key: str) -> str:

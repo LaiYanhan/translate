@@ -10,7 +10,6 @@ from PyQt6.QtCore import Qt, QTimer, QRect
 from PyQt6.QtGui import QFont, QColor, QPainter, QFontMetrics
 import config
 from config import (
-    SUBTITLE_FONT_SIZE,
     SUBTITLE_FONT_COLOR, SUBTITLE_PADDING
 )
 import ctypes
@@ -103,7 +102,7 @@ class OverlayRenderer(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        font = QFont("Microsoft YaHei", SUBTITLE_FONT_SIZE, QFont.Weight.Bold)
+        font = QFont("Microsoft YaHei", config.SUBTITLE_FONT_SIZE, QFont.Weight.Bold)
         painter.setFont(font)
         fm = QFontMetrics(font)
 

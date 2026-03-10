@@ -17,6 +17,9 @@ _DEFAULTS = {
     "llm_api_url": "https://api.openai.com/v1/chat/completions",
     "llm_model": "gpt-4o-mini",
     "subtitle_duration": 6.0,
+    "subtitle_font_size": 22,
+    "source_lang": "en",
+    "target_lang": "zh",
 }
 
 

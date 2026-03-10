@@ -1,6 +1,27 @@
 # 🎮 Game Translator - 游戏实时翻译工具
 
-一款基于 PaddleOCR + LLM 的 Windows 游戏实时翻译工具，支持热键截图、OCR 识别、AI 翻译、透明字幕覆盖显示。
+一款基于 **PaddleOCR + LLM (大模型)** 的 Windows 游戏实时翻译工具。支持热键截图、多语言 OCR 识别、AI 语境翻译、术语管理以及透明字幕覆盖显示。
+
+---
+
+## ✨ 核心特性
+
+-   **🌍 多语言支持**：支持 **日、韩、英、法、德** 等多种语言的 OCR 识别，以及翻译至 **简/繁中文、英语、日语** 等多种目标语言。
+-   **🤖 AI 深度翻译**：利用 GPT-4/DeepSeek 等大模型，结合用户提供的**游戏背景设定**和**核心术语表**，产出极具沉浸感的翻译。
+-   **📖 智能术语管理**：
+    *   **语境绑定**：支持为单个术语设定特定语境（如：`You` 在 *LoveLive* 中翻译为“曜”，在其他地方翻译为“你”）。
+    *   **背景信息注入**：允许输入整段游戏背景（剧情提要、角色性格），让 AI 彻底理解当下的翻译环境。
+    *   **AI 自动提取**：只需粘贴一段文本，AI 即可自动分析并为你提取核心术语。
+    *   **配置预设**：支持保存/载入不同游戏的术语配置（Preset），方便在多个游戏间无缝切换。
+-   **⏱️ 实时字幕显示**：
+    *   **透明覆盖层**：字幕以金黄色粗体显示在文字附近，背景半透明，不遮挡游戏视线。
+    *   **时长自定义**：可在主界面自由调节字幕停留时间。
+    *   **字体大小调节**：支持 10px - 100px 字体大小实时缩放。
+-   **🔍 OCR 纠错增强**：内置启发式过滤，自动修复 OCR 常见的识别错误（如将行首的 `I` 识别为 `/` 或 `|`）。
+-   **💾 高效缓存系统**：
+    *   **翻译快照**：相同文本秒速回显，不消耗 API 额度。
+    *   **清空按钮**：支持一键清空本地缓存，强制重新请求 AI 翻译。
+-   **✂ 灵活截图模式**：支持 **🖥 全屏**、**🪟 指定窗口**、**✂ 拖拽框选** 三种截图方式。
 
 ---
 
@@ -9,205 +30,79 @@
 ```
 game_translator/
 ├── main.py                 # 主入口 + 主控制窗口
-├── config.py               # 全局配置
-├── screen_capture.py       # 截图模块（全屏/窗口/框选）
-├── ocr_engine.py           # PaddleOCR 引擎封装（GPU/CPU 自动切换）
-├── ocr_postprocess.py      # OCR 文本合并算法
-├── subtitle_detector.py    # 字幕区域自动检测
+├── config.py               # 全局配置 & 动态设置同步
+├── screen_capture.py       # 截图模块（含区域选择 UI）
+├── ocr_engine.py           # PaddleOCR 封装（支持多语言热切换 & 异常降级）
+├── ocr_postprocess.py      # OCR 文本合并算法 + 启发式纠错逻辑
 ├── translator.py           # LLM 翻译接口
-├── prompt_builder.py       # Prompt 构建（含术语注入）
-├── translation_cache.py    # 翻译缓存（字典 + JSON 持久化）
-├── terminology_manager.py  # 术语管理（数据 + UI）
-├── overlay_renderer.py     # 透明字幕覆盖层渲染
+├── prompt_builder.py       # Prompt 构建（背景信息 + 术语 + 翻译规则）
+├── translation_cache.py    # 翻译缓存（原子写入 + 磁盘持久化）
+├── terminology_manager.py  # 术语管理 UI（含 AI 提取与配置预设功能）
+├── overlay_renderer.py     # 透明字幕覆盖层渲染（支持点击穿透与层级置顶）
 ├── hotkey_listener.py      # 全局热键监听
-├── terminology.json        # 术语表
-├── translation_cache.json  # 翻译缓存
-├── requirements.txt        # Python 依赖
-└── README.md
+├── presets/                # [新增] 存放用户保存的游戏配置预设
+├── terminology.json        # 当前生效的术语数据
+├── translation_cache.json  # 翻译缓存数据库
+└── app_settings.json       # 用户的常规与 API 设置持久化
 ```
 
 ---
 
-## ⚙️ 环境要求
+## 🚀 快速开始
 
-| 项目 | 要求 |
-|------|------|
-| 操作系统 | Windows 10/11 |
-| Python | 3.13.x |
-| GPU（可选）| NVIDIA CUDA 支持，自动回退 CPU |
-
----
-
-## 🚀 安装步骤
-
-### 1. 安装 Python 依赖
+### 1. 安装依赖
 
 ```bash
+# 推荐使用 Python 3.10+
 pip install -r requirements.txt
 ```
 
-> **注意**：`paddlepaddle-gpu` 需要 NVIDIA 驱动和 CUDA。  
-> 若无 GPU，可改用 `paddlepaddle`（CPU 版）：
-> ```bash
-> pip install paddlepaddle
-> ```
+> **GPU 加速提示**：若有 NVIDIA 显卡，请确保安装了对应的 `paddlepaddle-gpu` 以获得最佳 OCR 体验。
 
-### 2. 配置 LLM API
-
-在系统环境变量中设置（PowerShell）：
-
-```powershell
-$env:LLM_API_KEY  = "sk-xxxxxxxxxxxxxxxx"
-$env:LLM_API_URL  = "https://api.openai.com/v1/chat/completions"
-$env:LLM_MODEL    = "gpt-4o-mini"
-```
-
-或在 `config.py` 中直接修改默认值。
-
-> ✅ 支持所有 OpenAI 兼容 API（DeepSeek、Qwen、本地 Ollama 等）。
-
----
-
-## 🖥️ 使用方法
-
-### 启动程序
+### 2. 运行工具
 
 ```bash
-cd game_translator
 python main.py
 ```
 
-### 主窗口功能
+### 3. 设置 API
 
-| 按钮 | 功能 |
-|------|------|
-| 🖥 全屏 | 截取整个屏幕 |
-| 🪟 指定窗口 | 选择游戏程序窗口 |
-| ✂ 框选区域 | 拖动鼠标框选翻译区域 |
-| ▶ 启动监听 | 注册热键，开始监听 |
-| ⚡ 立即翻译 | 不用热键，直接触发一次翻译 |
-| 📖 术语管理 | 打开术语编辑窗口 |
-| ⌨ 修改热键 | 自定义快捷键 |
+在主界面的 **“🔑 API 设置”** 面板中填入你的 **API Key**、**URL** 和 **Model** (支持 DeepSeek, OpenAI, 1API 等)，点击 **💾 保存**。
 
-### 默认热键
+### 4. 基础操作
 
-`Ctrl + Shift + T`
-
-### 翻译流程
-
-```
-按下热键 → 截图 → OCR识别 → 字幕区域检测 → 文本合并 → LLM翻译 → 透明字幕显示（3秒自动消失）
-```
+1.  选择 **截图模式**（全屏/窗口/框选）。
+2.  在 **常规设置** 中选择 **源语言 (OCR)** 和 **目标语言**。
+3.  点击 **▶ 启动监听**。
+4.  在游戏内按下热键 `Ctrl + Shift + T` 即可看到翻译。
 
 ---
 
-## 🔧 配置说明（config.py）
+## 📖 进阶技巧：术语管理 (Terminology Manager)
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `HOTKEY` | 触发热键 | `ctrl+shift+t` |
-| `OCR_USE_GPU` | 优先使用 GPU | `True` |
-| `AUTO_DETECT_SUBTITLE_REGION` | 自动检测字幕区域 | `True` |
-| `SUBTITLE_BOTTOM_RATIO` | 底部区域比例 | `0.40`（底部 40%）|
-| `SUBTITLE_DURATION` | 字幕显示时长（秒）| `3` |
-| `MERGE_Y_THRESHOLD` | 同行 y 坐标阈值 | `15`（像素）|
-| `MERGE_X_GAP_THRESHOLD` | 同行 x 间距阈值 | `50`（像素）|
-| `LLM_TIMEOUT` | API 超时 | `15`（秒）|
+点击 **📖 术语管理** 按钮进入增强模式：
+
+-   **🌍 背景设定**：输入如“逆转裁判同人游戏，语气严肃”、“女主果南说话声音沉稳”等信息，AI 的译文会大不一样。
+-   **✨ AI 自动提取**：遇到不熟悉的生词库？点击该按钮，粘贴一大段游戏介绍或 Wiki 文本，AI 会帮你自动填充术语表。
+-   **📂 配置预设**：
+    *   点击 **保存配置一份** 将当前所有术语和背景导出为 JSON。
+    *   点击 **载入配置** 可以在玩不同游戏时秒速切换词表。
 
 ---
 
-## 📖 术语管理
+## 🛠️ 常见问题排查 (Troubleshooting)
 
-1. 点击主窗口 **📖 术语管理**
-2. 在表格中增删改术语
-3. 点击 **Save** 保存到 `terminology.json`
-4. 术语会自动注入到翻译 Prompt 中
-
----
-
-## 💾 翻译缓存
-
-- 缓存文件：`translation_cache.json`
-- 每次翻译后自动写入缓存（异步）
-- 下次遇到相同文本直接读取缓存，不再调用 LLM
-
----
-
-## 📦 EXE 打包
-
-### 安装 PyInstaller
-
-```bash
-pip install pyinstaller
-```
-
-### 打包命令
-
-```bash
-cd game_translator
-pyinstaller -F -w main.py ^
-    --add-data "terminology.json;." ^
-    --add-data "translation_cache.json;." ^
-    --hidden-import=paddleocr ^
-    --hidden-import=paddle ^
-    --hidden-import=cv2 ^
-    --hidden-import=PyQt6 ^
-    --name GameTranslator
-```
-
-> 生成的 EXE 位于 `dist/GameTranslator.exe`
-
-### PaddleOCR 模型说明
-
-PaddleOCR 首次运行时会自动下载模型到：  
-`C:\Users\<用户>\.paddleocr\`
-
-打包时需将模型文件夹一并包含，或在目标机器首次联网运行以下代码预下载：
-
-```python
-from paddleocr import PaddleOCR
-PaddleOCR(use_angle_cls=True, lang="en", use_gpu=False)
-```
-
-### GPU 依赖注意事项
-
-- 目标机器需安装 NVIDIA 驱动和对应 CUDA 版本
-- 若无 GPU，程序自动切换 CPU 模式，无需任何修改
-
----
-
-## 🧩 模块说明
-
-| 模块 | 职责 |
-|------|------|
-| `ocr_engine.py` | PaddleOCR 单例，GPU/CPU 自动检测 |
-| `ocr_postprocess.py` | 将碎片文字合并为完整句子 |
-| `subtitle_detector.py` | 检测屏幕底部字幕密集区域，缩小 OCR 范围 |
-| `translation_cache.py` | 线程安全缓存，异步持久化 |
-| `prompt_builder.py` | 构建翻译 Prompt，注入术语规则 |
-| `translator.py` | 缓存优先的 LLM 翻译接口 |
-| `overlay_renderer.py` | 无边框全屏透明覆盖层，点击穿透 |
-| `hotkey_listener.py` | 全局热键注册/注销，线程安全 |
-| `terminology_manager.py` | 术语 JSON 读写 + PyQt6 可视化编辑 |
-
----
-
-## ❓ 常见问题
-
-**Q: OCR 识别不准确？**  
-A: 调整 `MERGE_Y_THRESHOLD` / `MERGE_X_GAP_THRESHOLD`，或关闭 `AUTO_DETECT_SUBTITLE_REGION` 改为全屏 OCR。
-
-**Q: 热键不生效？**  
-A: 以管理员权限运行 `python main.py`（部分游戏需要管理员权限捕获键盘事件）。
-
-**Q: 翻译 API 报错？**  
-A: 检查 `LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL` 是否正确配置。
-
-**Q: GPU 无法使用？**  
-A: 确认安装了 `paddlepaddle-gpu` 且 CUDA 版本与 PaddlePaddle 匹配。详见 [PaddlePaddle 官网](https://www.paddlepaddle.org.cn/install/quick)。
+-   **Q: 识别出来全是英文，选了日文也没用？**
+    *   A: 请确认主界面显示 `Language: japan`。第一次运行日文识别时，后台会下载约 100MB 的模型，请等待控制台下载完成。
+-   **Q: 遇到 `No valid PaddlePaddle model found` 报错？**
+    *   A: 这是由于模型路径干扰。请尝试删除 `C:\Users\你的用户名\.paddleocr` 文件夹并重启程序让其重新下载。
+-   **Q: 字幕显示位置不对？**
+    *   A: 程序已移除“底部 40% 过滤”，识别出的文字会在其坐标正下方显示。请确保没有被其他窗口遮挡。
+-   **Q: 识别到的 `I` 变成了斜杠 `/`？**
+    *   A: 这是字体导致的 OCR 通病。新版本已包含 **AI 启发式修正**，会自动将常见的行首误识别纠正为正确的字母。
 
 ---
 
 ## 📝 License
 
-MIT License
+MIT License. 基于社区开源技术打磨，仅供学习交流使用。

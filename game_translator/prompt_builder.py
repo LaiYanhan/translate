@@ -8,7 +8,7 @@ from terminology_manager import load_terminology
 
 BASE_SYSTEM_PROMPT = (
     "You are a professional game translator.\n"
-    "Translate the following English game text into Chinese.\n"
+    "Translate the following game text into {target_lang}.\n"
     "Keep the translation short and natural, suitable for game UI.\n"
     "CRITICAL RULES:\n"
     "1. ONLY output the translated text. Do NOT add ANY explanations, conversational fillers, or warnings.\n"
@@ -27,7 +27,8 @@ def build_prompt(text: str) -> tuple[str, str]:
     """
     terms, background_info = load_terminology()
 
-    system_prompt = BASE_SYSTEM_PROMPT
+    import config
+    system_prompt = BASE_SYSTEM_PROMPT.format(target_lang=config.TARGET_LANG)
     
     if background_info:
         system_prompt += f"\n\nCONTEXT / GAME BACKGROUND:\n{background_info}"
