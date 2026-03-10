@@ -8,22 +8,21 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLineEdit, QLabel, QMessageBox, QHeaderView, QInputDialog, QApplication,
-    QPlainTextEdit
+    QPlainTextEdit, QFileDialog
 )
-from PyQt6.QtCore import Qt
-from config import TERMINOLOGY_FILE
+from PyQt6.QtCore import Qt, QDir
+from config import TERMINOLOGY_FILE, TERMINOLOGY_PRESETS_DIR
 
 logger = logging.getLogger(__name__)
 
 
 # ==================== 数据读写 ====================
 
-def load_terminology() -> tuple[dict[str, dict], str]:
+def load_terminology(file_path: str = None) -> tuple[dict[str, dict], str]:
     """
     加载术语表，返回 (terms_dict, background_info) 元组
-    terms_dict 格式: {英文: {"translation": 中文, "context": 语境}}
     """
-    path = Path(TERMINOLOGY_FILE)
+    path = Path(file_path or TERMINOLOGY_FILE)
     default_res = ({}, "")
     if not path.exists():
         return default_res
@@ -33,17 +32,13 @@ def load_terminology() -> tuple[dict[str, dict], str]:
         if not isinstance(data, dict):
             return default_res
         
-        # 判断是新格式还是旧格式
         if "terms" in data and isinstance(data["terms"], dict):
-            # 新格式: {"background_info": "...", "terms": {...}}
             raw_terms = data["terms"]
             bg_info = data.get("background_info", "")
         else:
-            # 旧格式: 直接就是术语字典
             raw_terms = data
             bg_info = ""
 
-        # 转换术语为统一格式
         terms_result = {}
         for k, v in raw_terms.items():
             if isinstance(v, str):
@@ -58,19 +53,21 @@ def load_terminology() -> tuple[dict[str, dict], str]:
         logger.error(f"加载术语表失败: {e}")
         return default_res
 
-def save_terminology(terms: dict[str, dict], background_info: str = "") -> None:
+def save_terminology(terms: dict[str, dict], background_info: str = "", file_path: str = None) -> None:
     """保存术语表和背景信息到文件"""
-    path = Path(TERMINOLOGY_FILE)
+    path = Path(file_path or TERMINOLOGY_FILE)
     data = {
         "background_info": background_info,
         "terms": terms
     }
     try:
+        # 确保目录存在
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        logger.info(f"术语表已保存：{len(terms)} 条，背景信息长度：{len(background_info)}")
+        logger.info(f"术语配置已保存至 {path}：{len(terms)} 条")
     except Exception as e:
-        logger.error(f"保存术语表失败: {e}")
+        logger.error(f"保存术语配置失败: {e}")
 
 
 # ==================== 术语管理窗口 ====================
@@ -81,7 +78,9 @@ class TerminologyManagerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("术语管理")
-        self.setMinimumSize(700, 600)
+        self.setMinimumSize(800, 650)
+        # 确保预设目录存在
+        Path(TERMINOLOGY_PRESETS_DIR).mkdir(parents=True, exist_ok=True)
         self._terms, self._background_info = load_terminology()
         self._setup_ui()
         self._populate_table()
@@ -104,6 +103,8 @@ class TerminologyManagerDialog(QDialog):
             QPushButton#deleteBtn:hover { background: #eba0ac; }
             QPushButton#saveBtn { background: #a6e3a1; }
             QPushButton#saveBtn:hover { background: #94e2d5; }
+            QPushButton#presetBtn { background: #fab387; color: #1e1e2e; }
+            QPushButton#presetBtn:hover { background: #f9e2af; }
             QPlainTextEdit { background: #181825; color: #cdd6f4;
                              border: 1px solid #313244; border-radius: 4px; padding: 4px; }
         """)
@@ -153,9 +154,23 @@ class TerminologyManagerDialog(QDialog):
         input_layout.addWidget(add_btn)
         layout.addLayout(input_layout)
 
-        # 按钮行
-        btn_layout = QHBoxLayout()
+        # 按钮行 (分两行，因为按钮多了)
+        btn_layout_main = QVBoxLayout()
         
+        row_preset = QHBoxLayout()
+        load_preset_btn = QPushButton("📂 载入配置 (Preset)")
+        load_preset_btn.setObjectName("presetBtn")
+        load_preset_btn.clicked.connect(self._load_preset)
+        
+        save_preset_btn = QPushButton("💾 保存配置一份 (Preset)")
+        save_preset_btn.setObjectName("presetBtn")
+        save_preset_btn.clicked.connect(self._save_preset)
+        
+        row_preset.addWidget(load_preset_btn)
+        row_preset.addWidget(save_preset_btn)
+        btn_layout_main.addLayout(row_preset)
+
+        row_actions = QHBoxLayout()
         extract_btn = QPushButton("AI Auto Extract ✨")
         extract_btn.setStyleSheet("background: #89b4fa; color: #1e1e2e; font-weight: bold;")
         extract_btn.clicked.connect(self._auto_extract)
@@ -164,15 +179,17 @@ class TerminologyManagerDialog(QDialog):
         del_btn.setObjectName("deleteBtn")
         del_btn.clicked.connect(self._delete_term)
         
-        save_btn = QPushButton("Save")
+        save_btn = QPushButton("Save (Apply to Current Game)")
         save_btn.setObjectName("saveBtn")
         save_btn.clicked.connect(self._save)
         
-        btn_layout.addWidget(extract_btn)
-        btn_layout.addStretch()
-        btn_layout.addWidget(del_btn)
-        btn_layout.addWidget(save_btn)
-        layout.addLayout(btn_layout)
+        row_actions.addWidget(extract_btn)
+        row_actions.addStretch()
+        row_actions.addWidget(del_btn)
+        row_actions.addWidget(save_btn)
+        btn_layout_main.addLayout(row_actions)
+        
+        layout.addLayout(btn_layout_main)
 
     def _populate_table(self):
         self.table.setRowCount(0)
@@ -243,6 +260,14 @@ class TerminologyManagerDialog(QDialog):
                 QMessageBox.warning(self, "失败", "提取失败或没有提取到任何术语。请确保 API 配置正确或文本足够长。")
 
     def _save(self):
+        terms = self._get_current_ui_terms()
+        self._terms = terms
+        self._background_info = self.bg_info_edit.toPlainText().strip()
+        save_terminology(terms, self._background_info)
+        QMessageBox.information(self, "成功", f"已保存 {len(terms)} 条术语及背景信息到当前运行配置。")
+
+    def _get_current_ui_terms(self):
+        """从表格 UI 中提取术语字典"""
         terms = {}
         for row in range(self.table.rowCount()):
             en_item = self.table.item(row, 0)
@@ -254,7 +279,30 @@ class TerminologyManagerDialog(QDialog):
                     "translation": zh_item.text().strip(),
                     "context": ctx_text
                 }
-        self._terms = terms
-        self._background_info = self.bg_info_edit.toPlainText().strip()
-        save_terminology(terms, self._background_info)
-        QMessageBox.information(self, "成功", f"已保存 {len(terms)} 条术语及背景信息。")
+        return terms
+
+    def _save_preset(self):
+        """将当前 UI 状态保存为预设文件"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存术语配置为预设", str(TERMINOLOGY_PRESETS_DIR), "JSON Files (*.json)"
+        )
+        if file_path:
+            terms = self._get_current_ui_terms()
+            bg_info = self.bg_info_edit.toPlainText().strip()
+            save_terminology(terms, bg_info, file_path)
+            QMessageBox.information(self, "成功", f"配置已导出至：\n{file_path}")
+
+    def _load_preset(self):
+        """选择预设文件并载入 UI"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "载入术语配置预设", str(TERMINOLOGY_PRESETS_DIR), "JSON Files (*.json)"
+        )
+        if file_path:
+            terms, bg_info = load_terminology(file_path)
+            self._terms = terms
+            self._background_info = bg_info
+            
+            # 刷新 UI
+            self.bg_info_edit.setPlainText(bg_info)
+            self._populate_table()
+            QMessageBox.information(self, "成功", "配置已载入到当前编辑列表（点击 Save 方可正式生效）。")

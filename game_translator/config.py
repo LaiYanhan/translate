@@ -10,6 +10,7 @@ from pathlib import Path
 # ==================== 路径配置 ====================
 BASE_DIR = Path(__file__).parent
 TERMINOLOGY_FILE = BASE_DIR / "terminology.json"
+TERMINOLOGY_PRESETS_DIR = BASE_DIR / "presets"
 TRANSLATION_CACHE_FILE = BASE_DIR / "translation_cache.json"
 
 # ==================== 热键配置 ====================
