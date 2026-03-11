@@ -10,10 +10,10 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QGroupBox, QStatusBar,
     QInputDialog, QMessageBox, QListWidget, QListWidgetItem,
-    QLineEdit, QScrollArea, QDoubleSpinBox, QSpinBox
+    QLineEdit, QScrollArea, QDoubleSpinBox, QSpinBox, QPlainTextEdit, QDialog
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QIcon, QColor
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject
+from PyQt6.QtGui import QFont, QIcon, QColor, QTextCursor
 
 import config
 from config import CaptureMode, HOTKEY
@@ -31,11 +31,53 @@ from hotkey_listener import HotkeyListener
 from terminology_manager import TerminologyManagerDialog
 from app_settings import load_settings, save_settings
 
-# ==================== 日志 ====================
+# ==================== 日志窗口 ====================
+class LogWindow(QDialog):
+    """独立的日志查看窗口"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("运行日志 - Game Translator")
+        self.resize(600, 400)
+        self.setStyleSheet("background: #1e1e2e; color: #cdd6f4;")
+        
+        layout = QVBoxLayout(self)
+        self.console = QPlainTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setStyleSheet("""
+            background: #181825; color: #a6adc8; 
+            font-family: 'Consolas', 'Monaco', monospace; font-size: 11px;
+            border: 1px solid #313244; border-radius: 4px; padding: 5px;
+        """)
+        layout.addWidget(self.console)
+        
+        btn_clear = QPushButton("清除日志")
+        btn_clear.clicked.connect(self.console.clear)
+        btn_clear.setFixedWidth(100)
+        layout.addWidget(btn_clear, alignment=Qt.AlignmentFlag.AlignRight)
+
+    def append_log(self, text: str):
+        self.console.appendPlainText(text)
+        self.console.moveCursor(QTextCursor.MoveOperation.End)
+
+
+# ==================== 日志捕获 ====================
+class LogSignal(QObject):
+    new_log = pyqtSignal(str)
+
+log_signal = LogSignal()
+
+class GUILogHandler(logging.Handler):
+    def emit(self, record):
+        msg = self.format(record)
+        log_signal.new_log.emit(msg)
+
+# 全局配置日志
+gui_handler = GUILogHandler()
+gui_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
+    handlers=[logging.StreamHandler(sys.stdout), gui_handler],
 )
 logger = logging.getLogger(__name__)
 
@@ -235,6 +277,7 @@ class MainWindow(QMainWindow):
         # 子系统
         self._overlay = OverlayRenderer()
         self._hotkey_listener = HotkeyListener()
+        self._log_window = LogWindow(self) # 创建日志窗口
         self._worker: TranslationWorker | None = None
         self._region_selector: RegionSelector | None = None
         self._window_select: WindowSelectDialog | None = None
@@ -242,12 +285,20 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._apply_stylesheet()
 
+        # 连接日志信号到独立窗口
+        log_signal.new_log.connect(self._log_window.append_log)
+
         # 加载设置
         self._load_app_settings()
         # 加载翻译缓存
+        from translation_cache import load_translation_cache
         load_translation_cache()
+        
         # 初始化 OCR（后台线程，避免阻塞 UI）
+        import threading
+        from ocr_engine import ocr_engine
         threading.Thread(target=ocr_engine.initialize, daemon=True).start()
+
         self._refresh_info()
 
     # ---------- UI 搭建 ----------
@@ -281,104 +332,119 @@ class MainWindow(QMainWindow):
         subtitle.setStyleSheet("font-size:12px; color:#a6adc8;")
         root.addWidget(subtitle)
 
-        # 信息面板
-        info_box = QGroupBox("当前状态")
-        info_layout = QVBoxLayout(info_box)
-        self._lbl_mode = QLabel()
-        self._lbl_window = QLabel()
-        self._lbl_hotkey = QLabel()
-        self._lbl_ocr = QLabel()
-        self._lbl_cache = QLabel()
-        for lbl in [self._lbl_mode, self._lbl_window, self._lbl_hotkey,
-                    self._lbl_ocr, self._lbl_cache]:
-            lbl.setStyleSheet("font-size:13px; color:#cdd6f4; padding: 2px 0;")
-            info_layout.addWidget(lbl)
-        root.addWidget(info_box)
+        # 查看日志按钮
+        self._btn_show_log = QPushButton("📜 查看运行日志 (Logs)")
+        self._btn_show_log.setFixedWidth(200)
+        self._btn_show_log.setObjectName("logBtn")
+        self._btn_show_log.clicked.connect(self._log_window.show)
+        root.addWidget(self._btn_show_log, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # 截图模式按钮
-        capture_box = QGroupBox("截图模式")
-        capture_layout = QHBoxLayout(capture_box)
-        for label, mode in [
-            ("🖥 全屏", CaptureMode.FULLSCREEN),
-            ("🪟 指定窗口", CaptureMode.WINDOW),
-            ("✂ 框选区域", CaptureMode.REGION),
-        ]:
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda checked, m=mode: self._set_mode(m))
-            capture_layout.addWidget(btn)
-        root.addWidget(capture_box)
+        # 截图模式
+        capture_group = QGroupBox("截图模式")
+        capture_group.setObjectName("captureGroup")
+        capture_layout = QVBoxLayout(capture_group)
+        
+        self._lbl_mode = QLabel("📷 截图模式：全屏")
+        self._lbl_window = QLabel("🪟 目标窗口：未选择")
+        self._lbl_hotkey = QLabel(f"⌨ 快捷键：{self._hotkey}")
+        
+        capture_layout.addWidget(self._lbl_mode)
+        capture_layout.addWidget(self._lbl_window)
+        capture_layout.addWidget(self._lbl_hotkey)
 
-        # 功能按钮
-        func_box = QGroupBox("功能")
-        func_layout = QVBoxLayout(func_box)
+        mode_buttons_layout = QHBoxLayout()
+        btn_fullscreen = QPushButton("全屏")
+        btn_fullscreen.clicked.connect(lambda: self._set_mode(CaptureMode.FULLSCREEN))
+        btn_window = QPushButton("选择窗口")
+        btn_window.clicked.connect(lambda: self._set_mode(CaptureMode.WINDOW))
+        btn_region = QPushButton("框选区域")
+        btn_region.clicked.connect(lambda: self._set_mode(CaptureMode.REGION))
+        mode_buttons_layout.addWidget(btn_fullscreen)
+        mode_buttons_layout.addWidget(btn_window)
+        mode_buttons_layout.addWidget(btn_region)
+        capture_layout.addLayout(mode_buttons_layout)
 
-        row1 = QHBoxLayout()
+        btn_change_hotkey = QPushButton("修改热键")
+        btn_change_hotkey.clicked.connect(self._change_hotkey)
+        capture_layout.addWidget(btn_change_hotkey)
+        
+        root.addWidget(capture_group)
+
+        # 翻译控制
+        control_group = QGroupBox("翻译控制")
+        control_layout = QVBoxLayout(control_group)
+
         self._btn_listen = QPushButton("▶ 启动监听")
-        self._btn_listen.clicked.connect(self._toggle_listen)
         self._btn_listen.setObjectName("listenBtn")
-        row1.addWidget(self._btn_listen)
+        self._btn_listen.clicked.connect(self._toggle_listen)
+        control_layout.addWidget(self._btn_listen)
 
-        btn_translate_now = QPushButton("⚡ 立即翻译")
-        btn_translate_now.clicked.connect(self._trigger_translation)
-        row1.addWidget(btn_translate_now)
-        func_layout.addLayout(row1)
+        btn_manual_translate = QPushButton("手动翻译一次")
+        btn_manual_translate.clicked.connect(self._trigger_translation)
+        control_layout.addWidget(btn_manual_translate)
 
-        row2 = QHBoxLayout()
-        btn_term = QPushButton("📖 术语管理")
-        btn_term.clicked.connect(self._open_terminology)
-        row2.addWidget(btn_term)
+        root.addWidget(control_group)
 
-        btn_hotkey = QPushButton("⌨ 修改热键")
-        btn_hotkey.clicked.connect(self._change_hotkey)
-        row2.addWidget(btn_hotkey)
-        func_layout.addLayout(row2)
+        # API 设置
+        api_box = QGroupBox("API 设置")
+        api_layout = QVBoxLayout(api_box)
 
-        row3 = QHBoxLayout()
-        btn_clear = QPushButton("🧹 清空缓存")
-        btn_clear.setObjectName("clearBtn")
-        btn_clear.clicked.connect(self._clear_cache)
-        row3.addWidget(btn_clear)
+        api_key_layout = QHBoxLayout()
+        api_key_layout.addWidget(QLabel("API Key:"))
+        self._api_key_input = QLineEdit()
+        self._api_key_input.setPlaceholderText("填写你的 LLM API Key")
+        api_key_layout.addWidget(self._api_key_input)
+        api_layout.addLayout(api_key_layout)
 
-        btn_quit = QPushButton("❌ 退出")
-        btn_quit.setObjectName("quitBtn")
-        btn_quit.clicked.connect(self.close)
-        row3.addWidget(btn_quit)
-        func_layout.addLayout(row3)
+        api_url_layout = QHBoxLayout()
+        api_url_layout.addWidget(QLabel("API URL:"))
+        self._api_url_input = QLineEdit()
+        self._api_url_input.setPlaceholderText("例如: https://api.openai.com/v1/chat/completions")
+        api_url_layout.addWidget(self._api_url_input)
+        api_layout.addLayout(api_url_layout)
 
-        root.addWidget(func_box)
+        api_model_layout = QHBoxLayout()
+        api_model_layout.addWidget(QLabel("模型名称:"))
+        self._api_model_input = QLineEdit()
+        self._api_model_input.setPlaceholderText("例如: gpt-4o-mini")
+        api_model_layout.addWidget(self._api_model_input)
+        api_layout.addLayout(api_model_layout)
 
-        # ---- 常规设置 ----
-        settings_box = QGroupBox("⚙ 常规设置")
-        settings_layout = QVBoxLayout(settings_box)
-        settings_layout.setSpacing(10)
+        btn_save_api = QPushButton("保存 API 设置")
+        btn_save_api.setObjectName("saveApiBtn")
+        btn_save_api.clicked.connect(self._save_api_settings)
+        api_layout.addWidget(btn_save_api)
 
-        # 停留时长 & 字体大小
-        row_params = QHBoxLayout()
-        row_params.addWidget(QLabel("字幕停留时长 (秒):"))
+        root.addWidget(api_box)
+
+        # 通用设置
+        general_settings_group = QGroupBox("通用设置")
+        general_settings_layout = QVBoxLayout(general_settings_group)
+
+        # 字幕显示时长
+        duration_layout = QHBoxLayout()
+        duration_layout.addWidget(QLabel("字幕显示时长 (秒):"))
         self._duration_spin = QDoubleSpinBox()
-        self._duration_spin.setRange(1.0, 60.0)
+        self._duration_spin.setRange(1.0, 30.0)
         self._duration_spin.setSingleStep(0.5)
-        self._duration_spin.setValue(config.SUBTITLE_DURATION)
         self._duration_spin.valueChanged.connect(self._save_general_settings)
-        self._duration_spin.setStyleSheet("background:#313244; color:#cdd6f4; border:1px solid #585b70; padding:4px;")
-        row_params.addWidget(self._duration_spin)
+        duration_layout.addWidget(self._duration_spin)
+        general_settings_layout.addLayout(duration_layout)
 
-        row_params.addSpacing(20)
-        row_params.addWidget(QLabel("字幕字体大小:"))
+        # 字幕字体大小
+        font_size_layout = QHBoxLayout()
+        font_size_layout.addWidget(QLabel("字幕字体大小 (px):"))
         self._font_size_spin = QSpinBox()
-        self._font_size_spin.setRange(10, 100)
-        self._font_size_spin.setValue(int(config.SUBTITLE_FONT_SIZE))
+        self._font_size_spin.setRange(10, 60)
+        self._font_size_spin.setSingleStep(1)
         self._font_size_spin.valueChanged.connect(self._save_general_settings)
-        self._font_size_spin.setStyleSheet("background:#313244; color:#cdd6f4; border:1px solid #585b70; padding:4px;")
-        row_params.addWidget(self._font_size_spin)
-        row_params.addStretch()
-        settings_layout.addLayout(row_params)
+        font_size_layout.addWidget(self._font_size_spin)
+        general_settings_layout.addLayout(font_size_layout)
 
-        # 语言选择
-        row_langs = QHBoxLayout()
-        row_langs.addWidget(QLabel("📖 源语言 (OCR):"))
+        # 源语言
+        source_lang_layout = QHBoxLayout()
+        source_lang_layout.addWidget(QLabel("源语言 (OCR):"))
         self._source_lang_combo = QComboBox()
-        # PaddleOCR 支持的常用 key: en, ch, japan, korea, french, german
         self._source_lang_map = {
             "English (en)": "en",
             "中英混合 (ch)": "ch",
@@ -389,56 +455,52 @@ class MainWindow(QMainWindow):
         }
         self._source_lang_combo.addItems(list(self._source_lang_map.keys()))
         self._source_lang_combo.currentIndexChanged.connect(self._save_general_settings)
-        row_langs.addWidget(self._source_lang_combo)
+        source_lang_layout.addWidget(self._source_lang_combo)
+        general_settings_layout.addLayout(source_lang_layout)
 
-        row_langs.addSpacing(20)
-        row_langs.addWidget(QLabel("➡ 翻译目标语言:"))
+        # 目标语言
+        target_lang_layout = QHBoxLayout()
+        target_lang_layout.addWidget(QLabel("目标语言 (翻译):"))
         self._target_lang_combo = QComboBox()
         self._target_lang_list = [
             "简体中文", "繁體中文", "English", "日本語", "Korean", "French", "German"
         ]
         self._target_lang_combo.addItems(self._target_lang_list)
         self._target_lang_combo.currentIndexChanged.connect(self._save_general_settings)
-        row_langs.addWidget(self._target_lang_combo)
-        row_langs.addStretch()
-        settings_layout.addLayout(row_langs)
+        target_lang_layout.addWidget(self._target_lang_combo)
+        general_settings_layout.addLayout(target_lang_layout)
 
-        root.addWidget(settings_box)
+        root.addWidget(general_settings_group)
 
-        # ---- API 设置面板 ----
-        api_box = QGroupBox("🔑 API 设置")
-        api_layout = QVBoxLayout(api_box)
-        api_layout.setSpacing(6)
+        # 术语管理
+        terminology_group = QGroupBox("术语管理")
+        terminology_layout = QVBoxLayout(terminology_group)
+        btn_terminology = QPushButton("管理自定义术语")
+        btn_terminology.clicked.connect(self._open_terminology)
+        terminology_layout.addWidget(btn_terminology)
+        root.addWidget(terminology_group)
 
-        # API Key
-        api_layout.addWidget(QLabel("API Key："))
-        self._api_key_input = QLineEdit()
-        self._api_key_input.setPlaceholderText("sk-xxxxxxxxxxxxxxxx")
-        self._api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key_input.setMinimumWidth(350)
-        api_layout.addWidget(self._api_key_input)
+        # 信息显示
+        info_group = QGroupBox("状态信息")
+        info_layout = QVBoxLayout(info_group)
+        self._lbl_ocr = QLabel("🔍 OCR 模式：未初始化")
+        self._lbl_cache = QLabel("💾 翻译缓存：0 条")
+        info_layout.addWidget(self._lbl_ocr)
+        info_layout.addWidget(self._lbl_cache)
+        root.addWidget(info_group)
 
-        # API URL
-        api_layout.addWidget(QLabel("API URL："))
-        self._api_url_input = QLineEdit()
-        self._api_url_input.setPlaceholderText("https://api.openai.com/v1/chat/completions")
-        self._api_url_input.setMinimumWidth(350)
-        api_layout.addWidget(self._api_url_input)
+        # 底部按钮
+        bottom_buttons_layout = QHBoxLayout()
+        btn_clear_cache = QPushButton("清空缓存")
+        btn_clear_cache.setObjectName("clearBtn")
+        btn_clear_cache.clicked.connect(self._clear_cache)
+        bottom_buttons_layout.addWidget(btn_clear_cache)
 
-        # Model
-        api_layout.addWidget(QLabel("Model："))
-        self._api_model_input = QLineEdit()
-        self._api_model_input.setPlaceholderText("gpt-4o-mini")
-        self._api_model_input.setMinimumWidth(350)
-        api_layout.addWidget(self._api_model_input)
-
-        # 保存按钮
-        save_api_btn = QPushButton("💾 保存 API 设置")
-        save_api_btn.setObjectName("saveApiBtn")
-        save_api_btn.clicked.connect(self._save_api_settings)
-        api_layout.addWidget(save_api_btn)
-
-        root.addWidget(api_box)
+        btn_quit = QPushButton("退出")
+        btn_quit.setObjectName("quitBtn")
+        btn_quit.clicked.connect(self.close)
+        bottom_buttons_layout.addWidget(btn_quit)
+        root.addLayout(bottom_buttons_layout)
 
         # 状态栏
         self.status_bar = QStatusBar()
@@ -468,6 +530,11 @@ class MainWindow(QMainWindow):
             QPushButton#clearBtn:hover { background: #f9e2af; }
             QPushButton#saveApiBtn { background: #89b4fa; color: #1e1e2e; font-weight: bold; }
             QPushButton#saveApiBtn:hover { background: #b4befe; }
+            QPushButton#logBtn { background: #45475a; color: #cdd6f4; border: 1px solid #585b70; }
+            QPushButton#logBtn:hover { background: #585b70; }
+            QGroupBox { font-weight: bold; color: #89b4fa; border: 1px solid #313244; 
+                        margin-top: 10px; padding-top: 10px; border-radius: 6px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
             QLineEdit {
                 background: #313244; color: #cdd6f4;
                 border: 1px solid #585b70; padding: 5px 8px;
@@ -571,12 +638,15 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"已显示 {len(subtitles)} 条字幕（{config.SUBTITLE_DURATION}s 后消失）")
 
     def _load_app_settings(self):
-        """从持久化文件读取 设置并填入 UI"""
+        """同步读取设置到 UI"""
         s = load_settings()
-        self._api_key_input.setText(s.get("llm_api_key", ""))
-        self._api_url_input.setText(s.get("llm_api_url", ""))
-        self._api_model_input.setText(s.get("llm_model", ""))
         
+        # API 
+        self._api_key_input.setText(s.get("api_key", ""))
+        self._api_url_input.setText(s.get("api_url", ""))
+        self._api_model_input.setText(s.get("api_model", ""))
+        
+        # 常规
         duration = s.get("subtitle_duration", 6.0)
         self._duration_spin.setValue(float(duration))
         config.SUBTITLE_DURATION = float(duration)
@@ -611,17 +681,16 @@ class MainWindow(QMainWindow):
             self._api_url_input.setText(url)
 
         settings = {
-            "llm_api_key": key,
-            "llm_api_url": url or "https://api.openai.com/v1/chat/completions",
-            "llm_model": model or "gpt-4o-mini",
-            "subtitle_duration": self._duration_spin.value()
+            "api_key": key,
+            "api_url": url or "https://api.openai.com/v1/chat/completions",
+            "api_model": model or "gpt-4o-mini",
         }
         save_settings(settings)
 
         # 即时更新运行时 config，无需重启
-        config.LLM_API_KEY = settings["llm_api_key"]
-        config.LLM_API_URL = settings["llm_api_url"]
-        config.LLM_MODEL   = settings["llm_model"]
+        config.LLM_API_KEY = settings["api_key"]
+        config.LLM_API_URL = settings["api_url"]
+        config.LLM_MODEL   = settings["api_model"]
 
         # 同步更新 translator 模块引用
         import translator as _tr
@@ -631,7 +700,7 @@ class MainWindow(QMainWindow):
 
         masked = self._mask_key(key)
         self.status_bar.showMessage(
-            f"API 设置已保存 | Key: {masked} | URL: {settings['llm_api_url']} | Model: {settings['llm_model']}"
+            f"API 设置已保存 | Key: {masked} | URL: {settings['api_url']} | Model: {settings['api_model']}"
         )
         self._refresh_info()
 
@@ -653,12 +722,13 @@ class MainWindow(QMainWindow):
         config.SUBTITLE_DURATION = s["subtitle_duration"]
         config.SUBTITLE_FONT_SIZE = s["subtitle_font_size"]
         config.SOURCE_LANG = s["source_lang"]
-        config.OCR_LANG = s["source_lang"] # OCR 跟随源语言
+        config.OCR_LANG = s["source_lang"]
         config.TARGET_LANG = s["target_lang"]
 
         self.status_bar.showMessage(
-            f"设置已更新 | 时长:{config.SUBTITLE_DURATION}s | 字体:{config.SUBTITLE_FONT_SIZE}px | {src_code}➡{tgt_lang}"
+            f"已保存设置: {src_code} ➡ {tgt_lang} | 字幕 {s['subtitle_duration']}s"
         )
+        self._refresh_info()
 
     @staticmethod
     def _mask_key(key: str) -> str:

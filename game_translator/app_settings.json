@@ -1,9 +1,5 @@
 {
-  "llm_api_key": "sk-7f15d72ed7c84253b9f433f4cd6a7120",
-  "llm_api_url": "https://api.deepseek.com/chat/completions",
-  "llm_model": "deepseek-chat",
-  "subtitle_duration": 11.0,
-  "subtitle_font_size": 14,
-  "source_lang": "japan",
-  "target_lang": "简体中文"
+  "api_key": "sk-7f15d72ed7c84253b9f433f4cd6a7120",
+  "api_url": "https://api.deepseek.com/chat/completions",
+  "api_model": "deepseek-chat"
 }

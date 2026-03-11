@@ -1,4 +1,4 @@
-# PyInstaller
+# Build and Dist
 build/
 dist/
 *.spec
@@ -8,16 +8,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
-.env
+venv/
 
-# App Data
-models/
-translation_cache.json
-app_settings.json
+# Project specific
+ocr_models/
 debug_capture.png
 debug_capture_ocr.png
-logs/
 
-# IDE
-.vscode/
-.idea/
+# User requested
+git/
