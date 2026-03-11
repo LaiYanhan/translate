@@ -1,5 +1,9 @@
 {
   "api_key": "sk-7f15d72ed7c84253b9f433f4cd6a7120",
   "api_url": "https://api.deepseek.com/chat/completions",
-  "api_model": "deepseek-chat"
+  "api_model": "deepseek-chat",
+  "subtitle_duration": 4.5,
+  "subtitle_font_size": 18,
+  "source_lang": "en",
+  "target_lang": "简体中文"
 }

@@ -638,15 +638,29 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"已显示 {len(subtitles)} 条字幕（{config.SUBTITLE_DURATION}s 后消失）")
 
     def _load_app_settings(self):
-        """同步读取设置到 UI"""
+        """同步读取设置到 UI 并注入运行时配置"""
         s = load_settings()
         
-        # API 
-        self._api_key_input.setText(s.get("api_key", ""))
-        self._api_url_input.setText(s.get("api_url", ""))
-        self._api_model_input.setText(s.get("api_model", ""))
+        # 1. 填充 API UI 并注入全局 Config
+        api_key = s.get("api_key", "")
+        api_url = s.get("api_url", "https://api.openai.com/v1/chat/completions")
+        api_model = s.get("api_model", "gpt-4o-mini")
         
-        # 常规
+        self._api_key_input.setText(api_key)
+        self._api_url_input.setText(api_url)
+        self._api_model_input.setText(api_model)
+
+        config.LLM_API_KEY = api_key
+        config.LLM_API_URL = api_url
+        config.LLM_MODEL   = api_model
+
+        # 同步更新 translator 模块引用
+        import translator as _tr
+        _tr.LLM_API_KEY = config.LLM_API_KEY
+        _tr.LLM_API_URL = config.LLM_API_URL
+        _tr.LLM_MODEL   = config.LLM_MODEL
+        
+        # 2. 常规设置
         duration = s.get("subtitle_duration", 6.0)
         self._duration_spin.setValue(float(duration))
         config.SUBTITLE_DURATION = float(duration)
