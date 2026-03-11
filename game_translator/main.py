@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QGroupBox, QStatusBar,
     QInputDialog, QMessageBox, QListWidget, QListWidgetItem,
-    QLineEdit, QScrollArea, QDoubleSpinBox, QSpinBox, QPlainTextEdit, QDialog
+    QLineEdit, QScrollArea, QDoubleSpinBox, QSpinBox, QPlainTextEdit, QDialog,
+    QCheckBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject
 from PyQt6.QtGui import QFont, QIcon, QColor, QTextCursor
@@ -108,11 +109,12 @@ class TranslationWorker(QThread):
                 return
             
             # --- 强制保存当前截图以便调试游戏全屏穿透问题 ---
-            try:
-                import cv2
-                cv2.imwrite("debug_capture.png", image)
-            except Exception as e:
-                logger.warning(f"无法保存 debug_capture.png: {e}")
+            if config.SAVE_DEBUG_IMAGES:
+                try:
+                    import cv2
+                    cv2.imwrite("debug_capture.png", image)
+                except Exception as e:
+                    logger.warning(f"无法保存 debug_capture.png: {e}")
 
             h, w = image.shape[:2]
 
@@ -130,11 +132,12 @@ class TranslationWorker(QThread):
                 self.finished.emit([])
                 return
             else :
-                try:
-                    import cv2
-                    cv2.imwrite("debug_capture_ocr.png", image)
-                except Exception as e:
-                    logger.warning(f"无法保存 debug_capture_ocr.png: {e}")
+                if config.SAVE_DEBUG_IMAGES:
+                    try:
+                        import cv2
+                        cv2.imwrite("debug_capture_ocr.png", image)
+                    except Exception as e:
+                        logger.warning(f"无法保存 debug_capture_ocr.png: {e}")
 
             # ----- 字幕区域检测（可选） -----
             # （用户已要求完全移除自动字幕过滤功能，现将所有识别到的文字全部保留）
@@ -159,19 +162,22 @@ class TranslationWorker(QThread):
                 self.finished.emit([])
                 return
 
-            # ----- 翻译 -----
-            self.status.emit(f"正在翻译 {len(merged)} 条文本...")
+            # ----- 批量翻译 -----
+            self.status.emit(f"正在批量翻译 {len(merged)} 条文本...")
+            
+            from translator import translate_texts_batch, reset_errors
+            reset_errors()
+            
+            raw_texts = [m[0] for m in merged]
+            print(f"\n[系统] 开始批量翻译 {len(raw_texts)} 条文本...")
+            
+            translations = translate_texts_batch(raw_texts)
+            
             results = []
-            
-            import translator
-            translator.reset_errors()
-            
-            print(f"\n[系统] 开始翻译 {len(merged)} 条文本...")
-            for text, box, conf in merged:
-                translation = translate_text(text)
+            for i, translation in enumerate(translations):
                 if translation:
-                    print(f"[翻译结果] {text} -> {translation}")
-                    results.append((translation, box))
+                    results.append((translation, merged[i][1]))
+                    print(f"[翻译结果] {raw_texts[i]} -> {translation}")
 
             self.finished.emit(results)
             self.status.emit(f"翻译完成，共 {len(results)} 条。")
@@ -470,6 +476,11 @@ class MainWindow(QMainWindow):
         target_lang_layout.addWidget(self._target_lang_combo)
         general_settings_layout.addLayout(target_lang_layout)
 
+        # 保存调试图片开关
+        self._save_images_checkbox = QCheckBox("保存调试图片 (会略微降低速度)")
+        self._save_images_checkbox.stateChanged.connect(self._save_general_settings)
+        general_settings_layout.addWidget(self._save_images_checkbox)
+
         root.addWidget(general_settings_group)
 
         # 术语管理
@@ -681,7 +692,12 @@ class MainWindow(QMainWindow):
         # 兼容旧版的 "zh" -> "简体中文"
         if tgt_l == "zh": tgt_l = "简体中文"
         self._target_lang_combo.setCurrentText(tgt_l)
+        self._target_lang_combo.setCurrentText(tgt_l)
         config.TARGET_LANG = tgt_l
+
+        save_imgs = s.get("save_debug_images", False)
+        self._save_images_checkbox.setChecked(save_imgs)
+        config.SAVE_DEBUG_IMAGES = save_imgs
 
     def _save_api_settings(self):
         """将输入框内容保存到 app_settings.json 并即时生效"""
@@ -730,6 +746,8 @@ class MainWindow(QMainWindow):
         tgt_lang = self._target_lang_combo.currentText()
         s["target_lang"] = tgt_lang
 
+        s["save_debug_images"] = self._save_images_checkbox.isChecked()
+
         save_settings(s)
         
         # 同步更新 config
@@ -738,6 +756,7 @@ class MainWindow(QMainWindow):
         config.SOURCE_LANG = s["source_lang"]
         config.OCR_LANG = s["source_lang"]
         config.TARGET_LANG = s["target_lang"]
+        config.SAVE_DEBUG_IMAGES = s["save_debug_images"]
 
         self.status_bar.showMessage(
             f"已保存设置: {src_code} ➡ {tgt_lang} | 字幕 {s['subtitle_duration']}s"

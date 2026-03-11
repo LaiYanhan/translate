@@ -20,6 +20,7 @@ _DEFAULTS = {
     "subtitle_font_size": 22,
     "source_lang": "en",
     "target_lang": "zh",
+    "save_debug_images": False,
 }
 
 

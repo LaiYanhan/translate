@@ -132,7 +132,68 @@ def merge_ocr_lines(
             
             merged_box = _merge_boxes(boxes)
             avg_conf = float(np.mean(confs))
-
             merged.append((merged_text, merged_box, avg_conf))
 
-    return merged
+    # --- 最终补充：垂直合并断句 ---
+    return _merge_vertical_sentences(merged)
+
+
+def _merge_vertical_sentences(
+    merged_items: List[Tuple[str, list, float]]
+) -> List[Tuple[str, list, float]]:
+    """
+    如果第一行结尾没有标点，且第二行在垂直下方不远处，则合并为一句。
+    """
+    if len(merged_items) < 2:
+        return merged_items
+
+    final_results = []
+    i = 0
+    while i < len(merged_items):
+        item = merged_items[i]
+        
+        # 如果是最后一条，直接加入
+        if i == len(merged_items) - 1:
+            final_results.append(item)
+            break
+            
+        next_item = merged_items[i+1]
+        
+        text, box, conf = item
+        n_text, n_box, n_conf = next_item
+        
+        # 判定准则 1：当前行结尾是否缺少结束标点
+        # 英文常见结束标点：., !, ?, ", )
+        ends_with_punc = text.rstrip().endswith((".", "!", "?", "\"", ")", "。", "！", "？", "”", "）"))
+        
+        # 判定准则 2：垂直距离是否接近
+        h1 = _box_bottom_y(box) - _box_top_y(box)
+        v_gap = _box_top_y(n_box) - _box_bottom_y(box)
+        
+        # 判定准则 3：水平对齐（左侧对齐程度）
+        left_gap = abs(_box_left_x(box) - _box_left_x(n_box))
+        
+        # 判定准则 4：语义启发式（防止合并人名/标签）
+        # 如果第一行很短（如 "YU"），且第二行以大写字母开头，通常是两个独立句/项
+        is_short_label = len(text.strip()) < 10 or len(text.strip().split()) <= 2
+        starts_new_sentence = n_text.strip() and n_text.strip()[0].isupper()
+        is_likely_name = text.strip().isupper() and len(text.strip()) < 15
+
+        # 经验阈值：垂直间距小于 1.5 倍行高，且左侧对齐度较好
+        is_close = v_gap < h1 * 1.5 and left_gap < h1 * 2
+        
+        # 排除规则：如果是短标签/人名且下一句又是开头，则不合并
+        should_avoid_merge = (is_short_label and starts_new_sentence) or is_likely_name
+
+        if not ends_with_punc and is_close and not should_avoid_merge:
+            # 执行合并
+            new_text = text + " " + n_text
+            new_box = _merge_boxes([box, n_box])
+            new_conf = (conf + n_conf) / 2
+            merged_items[i+1] = (new_text, new_box, new_conf) # 更新下一条
+        else:
+            final_results.append(item)
+            
+        i += 1
+        
+    return final_results

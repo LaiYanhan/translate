@@ -6,7 +6,7 @@ translator.py - LLM 翻译接口
 import logging
 import requests
 from config import LLM_API_KEY, LLM_API_URL, LLM_MODEL, LLM_TIMEOUT
-from prompt_builder import build_prompt
+from prompt_builder import build_prompt, build_batch_prompt
 from translation_cache import get_cached_translation, set_cached_translation
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,103 @@ def translate_text(text: str) -> str:
         set_cached_translation(text, translation)
 
     return translation or text
+
+
+def translate_texts_batch(texts: list[str]) -> list[str]:
+    """
+    批量翻译文本列表。集成缓存。
+    
+    :param texts: 原文列表
+    :return: 译文列表（同序）
+    """
+    if not texts:
+        return []
+
+    # 1. 查缓存
+    results_map = {} # 原文 -> 译文
+    missing_texts = []
+    
+    for t in texts:
+        t_strip = t.strip()
+        if not t_strip:
+            results_map[t] = ""
+            continue
+            
+        cached = get_cached_translation(t_strip)
+        if cached:
+            results_map[t] = cached
+        else:
+            if t_strip not in missing_texts:
+                missing_texts.append(t_strip)
+                
+    # 2. 调用 LLM 翻译缺失部分
+    if missing_texts:
+        global _consecutive_errors
+        if _consecutive_errors < MAX_CONSECUTIVE_ERRORS:
+            batch_translations = _call_llm_batch(missing_texts)
+            if batch_translations and len(batch_translations) == len(missing_texts):
+                for original, translated in zip(missing_texts, batch_translations):
+                    set_cached_translation(original, translated)
+                    results_map[original] = translated
+            else:
+                # 失败则回退到原文（或单独尝试，这里简单处理回退原文）
+                for t in missing_texts:
+                    results_map[t] = t
+        else:
+            for t in missing_texts:
+                results_map[t] = t
+
+    # 按顺序组装结果
+    return [results_map.get(t, t) for t in texts]
+
+
+def _call_llm_batch(texts: list[str]) -> list[str] | None:
+    """内部批量调用 LLM"""
+    global _consecutive_errors
+    if not LLM_API_KEY:
+        return None
+
+    system_prompt, user_message = build_batch_prompt(texts)
+    
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": 0.2, # 批处理调低随机性，更稳定
+    }
+
+    try:
+        url_to_call = LLM_API_URL.strip()
+        if "api.deepseek.com" in url_to_call and not url_to_call.endswith("/completions"):
+            url_to_call = "https://api.deepseek.com/chat/completions"
+
+        resp = requests.post(url_to_call, headers=headers, json=payload, timeout=LLM_TIMEOUT * 1.5)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"].strip()
+        
+        # 解析 JSON 数组
+        if content.startswith("```"):
+            content = content.replace("```json", "").replace("```", "").strip()
+            
+        import json
+        translations = json.loads(content)
+        
+        if isinstance(translations, list) and len(translations) == len(texts):
+            logger.info(f"LLM 批量翻译成功，数量: {len(texts)}")
+            _consecutive_errors = 0
+            return [str(t) for t in translations]
+        else:
+            logger.error(f"LLM 批量响应长度不匹配: 预期 {len(texts)}, 得到 {len(translations) if isinstance(translations, list) else '非列表'}")
+            _consecutive_errors += 1
+            return None
+            
+    except Exception as e:
+        logger.error(f"LLM 批量翻译请求失败: {e}")
+        _consecutive_errors += 1
+        return None
 
 
 def _call_llm(text: str) -> str:

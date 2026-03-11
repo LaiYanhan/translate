@@ -41,19 +41,20 @@ def _load_settings():
             s.get("subtitle_duration", 6),
             s.get("subtitle_font_size", 22),
             s.get("source_lang", "en"),
-            s.get("target_lang", "zh")
+            s.get("target_lang", "zh"),
+            s.get("save_debug_images", False)
         )
     except Exception:
         return (
             os.environ.get("LLM_API_KEY", ""),
             os.environ.get("LLM_API_URL", "https://api.openai.com/v1/chat/completions"),
             os.environ.get("LLM_MODEL", "gpt-4o-mini"),
-            6, 22, "en", "zh"
+            6, 22, "en", "zh", False
         )
 
 (LLM_API_KEY, LLM_API_URL, LLM_MODEL, 
  SUBTITLE_DURATION, SUBTITLE_FONT_SIZE, 
- SOURCE_LANG, TARGET_LANG) = _load_settings()
+ SOURCE_LANG, TARGET_LANG, SAVE_DEBUG_IMAGES) = _load_settings()
 
 OCR_LANG = SOURCE_LANG  # OCR 语言随源语言变动
 LLM_TIMEOUT = 15                      # 请求超时（秒）

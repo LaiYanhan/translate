@@ -47,3 +47,38 @@ def build_prompt(text: str) -> tuple[str, str]:
         )
 
     return system_prompt, text
+
+
+def build_batch_prompt(texts: list[str]) -> tuple[str, str]:
+    """
+    构建批量翻译 Prompt。
+    使用 JSON 格式确保输出与输入对应。
+
+    :param texts: 待翻译的原文列表
+    :return: (system_prompt, user_message)
+    """
+    terms, background_info = load_terminology()
+
+    import config
+    system_prompt = (
+        f"You are a professional game translator translating to {config.TARGET_LANG}.\n"
+        "Keep translations short and natural for game UI.\n"
+        "CRITICAL RULES:\n"
+        "1. ONLY output the translated text within the requested JSON format.\n"
+        "2. If an item cannot be translated (URL/symbols), return the original.\n"
+        "3. Provide the translations as a JSON array of strings in the EXACT same order as input.\n"
+        "Example output format: [\"Translation 1\", \"Translation 2\"]\n"
+    )
+
+    if background_info:
+        system_prompt += f"\nCONTEXT / GAME BACKGROUND:\n{background_info}"
+
+    if terms:
+        term_lines = [f"  {en} → {data['translation']}" for en, data in terms.items()]
+        system_prompt += "\nTerminology rules (follow strictly):\n" + "\n".join(term_lines)
+
+    user_message = "Translate the following strings and return a JSON array:\n" + "\n".join(
+        [f"{i+1}. {t}" for i, t in enumerate(texts)]
+    )
+
+    return system_prompt, user_message
